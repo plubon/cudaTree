@@ -32,6 +32,91 @@ using namespace std;
 
 
 
+bool findHost(int val)
+{
+	int* result = NULL;
+	int host1[] = {2};
+	cudaError_t err = cudaMalloc((void **)&result, 1 * sizeof(int));
+	if (err != cudaSuccess)
+		cout<<"result "<<cudaGetErrorString(err)<<endl;
+	cudaMemcpy(result, host1, 1*sizeof(int), cudaMemcpyHostToDevice);
+	cout<<host1[0]<<endl;
+	while(host1[0] < 5)
+	{
+		searchBetter<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(val , result);
+		err = cudaThreadSynchronize();
+		cudaMemcpy(host1, result, 1*sizeof(int),  cudaMemcpyDeviceToHost);
+		err = cudaThreadSynchronize();
+		if(host1[0] > 0)
+			cout<<host1[0]<<endl;
+	}
+	containsBetter<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(val, result);
+	err = cudaThreadSynchronize();
+	cudaMemcpy(host1, result, 1*sizeof(int),  cudaMemcpyDeviceToHost);
+	err = cudaThreadSynchronize();
+	if(host1[0] == 1)
+	{
+		cout<<"FOUND"<<endl;
+		return true;
+	}
+	else
+	{
+		cout<<"NOT FOUND"<<endl;
+		return false;
+	}
+}
+
+void splitHost(node* node1)
+{
+	node* nn;
+	createNewNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(nn);
+	cudaThreadSynchronize();
+	copyToNewNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(nn);
+	cudaThreadSynchronize();
+}
+
+void insertHost(node* node)
+{
+	int* fullDevice = NULL;
+	int fullHost[1];
+	cudaError_t err = cudaMalloc((void **)&fullDevice, 1 * sizeof(int));
+	cudaThreadSynchronize();
+	copyNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(node, fullDevice);
+	cudaMemcpy(fullHost, fullDevice, 1*sizeof(int),  cudaMemcpyDeviceToHost);
+	cudaThreadSynchronize();
+	addValue<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(node);
+	cudaThreadSynchronize();
+	if(fullHost[0])
+		splitHost(node);
+}
+
+void splitHost(int val)
+{
+	node* newNode;
+	createNewNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(newNode);
+	cudaThreadSynchronize();
+	copyToNewNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(newNode);
+	cudaThreadSynchronize();
+	insertHost(newNode);
+}
+
+void insertHost(int val)
+{
+	if(findHost(val))
+		return;
+	int* fullDevice = NULL;
+	int fullHost[1];
+	cudaError_t err = cudaMalloc((void **)&fullDevice, 1 * sizeof(int));
+	cudaThreadSynchronize();
+	copyNode<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(val, fullDevice);
+	cudaMemcpy(fullHost, fullDevice, 1*sizeof(int),  cudaMemcpyDeviceToHost);
+	cudaThreadSynchronize();
+	addValue<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(val);
+	cudaThreadSynchronize();
+	if(fullHost[0])
+		splitHost(val);
+}
+
 int main(int argc, char **argv)
 {
 	string filename="/home/piotr/Uczelnia/Cuda/BTree/testfile";
@@ -111,6 +196,9 @@ int main(int argc, char **argv)
 	err = cudaThreadSynchronize();
     //test<<<(INPUTSIZE/BLOCKSIZE), BLOCKSIZE>>>(root, input, result);
 	int v = -1;
+	findHost(97861);
+	insertHost(-1);
+	findHost(-1);
 	search<<<1, BLOCKSIZE>>>(v, result);
     err = cudaThreadSynchronize();
     if (err != cudaSuccess)
@@ -118,26 +206,7 @@ int main(int argc, char **argv)
     cudaMemcpy(host, result, 1*sizeof(int), cudaMemcpyDeviceToHost);
     if (err != cudaSuccess)
         	cout<<"copying result "<<cudaGetErrorString(err)<<endl;
-    int host1[] = {2};
-    cudaMemcpy(result, host1, 1*sizeof(int), cudaMemcpyHostToDevice);
-    cout<<host1[0]<<endl;
-    while(host1[0] < 5)
-    {
-    	searchBetter<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(97861, result);
-    	err = cudaThreadSynchronize();
-    	cudaMemcpy(host1, result, 1*sizeof(int),  cudaMemcpyDeviceToHost);
-    	err = cudaThreadSynchronize();
-    	if(host1[0] > 0)
-    		cout<<host1[0]<<endl;
-    }
-    containsBetter<<<(ORDER + BLOCKSIZE -1) / BLOCKSIZE, BLOCKSIZE>>>(97861, result);
-    err = cudaThreadSynchronize();
-    cudaMemcpy(host1, result, 1*sizeof(int),  cudaMemcpyDeviceToHost);
-    err = cudaThreadSynchronize();
-    if(host1[0] == 1)
-    	cout<<"FOUND"<<endl;
-    else
-    	cout<<"NOT FOUND"<<endl;
+
     int f = 0;
     for(int i=0; i<INPUTSIZE; i++)
     {

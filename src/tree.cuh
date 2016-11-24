@@ -38,4 +38,10 @@ __device__ void addKey(node*, int);
 __device__ int contains(node*, int);
 __global__ void searchBetter(int val, int* result);
 __global__ void containsBetter(int val, int* result);
+__global__ void copyNode(int val, int* full);
+__global__ void copyNode(node* node, int* full);
+__global__ void addValue(int val);
+__global__ void addValue(node* nn);
+__global__ void createNewNode(node*& nnode);
+__global__ void copyToNewNode(node*& nnode);
 #endif /* TREE_CUH_ */

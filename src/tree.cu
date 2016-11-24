@@ -26,6 +26,7 @@ __device__ int tempKeys[ORDER];
 __device__ node* tempPointers[ORDER];
 __device__ int globalPointerIdx;
 __device__ node* globalCurr1, *globalCurr2;
+__device__ node* foundChild;
 
 
 __device__ void make_node(node*& new_node)
@@ -282,7 +283,7 @@ __device__ void addKey(node* curr, node* child)
 		if(inWholeIdx < curr->num_keys)
 			curr->keys[inWholeIdx+1] = tempKeys[inWholeIdx];
 		if(!curr->is_leaf)
-			curr->pointers[inWholeIdx+1] = curr->pointers[inWholeIdx];
+			curr->pointers[inWholeIdx+1] = tempPointers[inWholeIdx];
 	}
 	__syncthreads();
 	if(inWholeIdx == globalIdx)
@@ -331,6 +332,25 @@ __device__ void split(node* curr, node* child)
 		split(curr, newNode);
 	else
 		addKey(curr->parent, newNodeLocal);
+}
+
+__global__ void createNewNode(node*& root)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	node* curr = foundChild;
+	if(inWholeIdx == 0)
+	{
+		root = (node*)malloc(sizeof(node));
+		root->keys = (int*)malloc( (ORDER - 1) * sizeof(int) );
+		root->pointers = (node**)malloc( ORDER * sizeof(node *) );
+		root->is_leaf = curr->is_leaf;
+		root->num_keys = ORDER/2;
+		root->parent = curr->parent;
+		root->next = curr->next;
+		curr->num_keys = ORDER/2;
+		curr->next = newNode;
+		globalPointerIdx = 0;
+	}
 }
 
 __device__ void split(node* curr, int val)
@@ -420,7 +440,149 @@ __global__ void insertVal(int val)
 		split(curr, val);
 }
 
+__global__ void copyNode(node* node1, int* full)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	foundChild = foundChild->parent;
+	node* curr = foundChild;
+	int val = node1->keys[0];
+	if(inWholeIdx == 0)
+	{
+		if(foundChild->num_keys == ORDER - 1)
+			full[0] = 1;
+		else
+			full[0] = 0;
 
+	}
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx < curr->num_keys)
+			tempKeys[inWholeIdx] = curr->keys[inWholeIdx];
+		if(!curr->is_leaf)
+			tempPointers[inWholeIdx] = curr->pointers[inWholeIdx];
+	}
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx == 0)
+		{
+			if(val <= curr->keys[0])
+			{
+				globalIdx = 0;
+			}
+		}
+		else if(inWholeIdx < curr->num_keys && inWholeIdx > 0)
+		{
+			if(curr->keys[inWholeIdx-1] < val && val <= curr->keys[inWholeIdx])
+			{
+				globalIdx = inWholeIdx;
+			}
+		}
+		else if(inWholeIdx == curr->num_keys)
+		{
+			if(val > curr->keys[curr->num_keys - 1])
+			{
+				globalIdx = curr->num_keys;
+			}
+		}
+	}
+	if(inWholeIdx == 0 && foundChild->num_keys == ORDER - 1)
+	{
+		foundChild->num_keys = ORDER/2;
+		foundChild = foundChild->parent;
+	}
+}
+
+__global__ void copyNode(int val, int* full)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	node* curr = foundChild;
+	if(inWholeIdx == 0)
+	{
+		if(foundChild->num_keys == ORDER - 1)
+			full[0] = 1;
+		else
+			full[0] = 0;
+
+	}
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx < curr->num_keys)
+			tempKeys[inWholeIdx] = curr->keys[inWholeIdx];
+		if(!curr->is_leaf)
+			tempPointers[inWholeIdx] = curr->pointers[inWholeIdx];
+	}
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx == 0)
+		{
+			if(val <= curr->keys[0])
+			{
+				globalIdx = 0;
+			}
+		}
+		else if(inWholeIdx < curr->num_keys && inWholeIdx > 0)
+		{
+			if(curr->keys[inWholeIdx-1] < val && val <= curr->keys[inWholeIdx])
+			{
+				globalIdx = inWholeIdx;
+			}
+		}
+		else if(inWholeIdx == curr->num_keys)
+		{
+			if(val > curr->keys[curr->num_keys - 1])
+			{
+				globalIdx = curr->num_keys;
+			}
+		}
+	}
+	if(inWholeIdx == 0 && foundChild->num_keys == ORDER - 1)
+	{
+		foundChild->num_keys = ORDER/2;
+	}
+}
+
+__global__ void addValue(int val)
+{
+	node* curr = foundChild;
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(inWholeIdx > globalIdx && inWholeIdx < curr->num_keys)
+			curr->keys[inWholeIdx] = tempKeys[inWholeIdx - 1];
+	if(inWholeIdx == globalIdx)
+	{
+		curr->keys[globalIdx] = val;
+		curr->num_keys++;
+	}
+}
+
+__global__ void addValue(node* nn)
+{
+	node* curr = foundChild;
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(inWholeIdx > globalIdx && inWholeIdx < curr->num_keys)
+			curr->keys[inWholeIdx] = tempKeys[inWholeIdx - 1];
+	if(inWholeIdx == globalIdx)
+	{
+		curr->pointers[globalIdx] = nn;
+		curr->num_keys++;
+		if(globalIdx == 0)
+			curr->keys[0] = nn->keys[nn->num_keys-1];
+		else
+			curr->keys[globalIdx] = nn->keys[0];
+	}
+}
+
+__global__ void copyToNewNode(node*& nnode)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(inWholeIdx < (ORDER /2))
+	{
+		nnode->keys[inWholeIdx] = tempKeys[ORDER/2 + inWholeIdx];
+	}
+	if(!nnode->is_leaf && inWholeIdx <= (ORDER /2))
+	{
+		nnode->pointers[inWholeIdx] = tempPointers[ORDER/2 + inWholeIdx];
+	}
+}
 
 
 __device__ int contains(node* curr, int val)
@@ -616,6 +778,8 @@ __global__ void containsBetter(int val, int* result)
 	else if(result[0] == 8)
 		curr = globalCurr2;
 	assert(curr->is_leaf);
+	if(inWholeIdx == 0)
+		foundChild = curr;
 	if(inWholeIdx < curr->num_keys)
 	{
 		if(curr->keys[inWholeIdx] == val)
